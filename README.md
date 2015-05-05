@@ -1,4 +1,10 @@
 MavLink_FrSkySPort
+
+This is a modification of chsw/Christians version of the stuff below. 
+I would like to change the NEOpixels on my Hexacopter arms to reflect various ap_custom_modes with different displays, and to have a visual "gas gage" on one of the arms, etc.
+
+I am a complete novice to all of this. 
+
 ==================
 This is a modified version of the mavlink to frsky s.port code found here:
 http://diydrones.com/forum/topics/amp-to-frsky-x8r-sport-converter
