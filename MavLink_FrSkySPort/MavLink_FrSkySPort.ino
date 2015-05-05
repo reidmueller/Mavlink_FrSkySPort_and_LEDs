@@ -54,14 +54,60 @@ AccZ            ( Z Axis average vibration m/s?)
 
 #include <GCS_MAVLink.h>
 #include "FrSkySPort.h"
+#include <FastLED.h>
 
 #define debugSerial           Serial
 #define _MavLinkSerial      Serial2
 #define START                   1
 #define MSG_RATE            10              // Hertz
 
+#define LED_PIN     6
+#define NUM_LEDS    60
+#define NUM_ARMS    6
+#define MAXBRIGHTNESS  150 // maximum brightness for normal lights
+#define DIMNESS 20 // minimum brightness for breathing
+#define LED_TYPE    WS2812
+#define COLOR_ORDER GRB
+
+//ap_base_mode values
+#define DISARMED 0
+#define ARMED 1
+//ap_custom_mode values
+#define STABILIZED 0
+#define ACRO 1
+#define ALT_HOLD 2
+#define AUTO 3
+#define GUIDED 4
+#define LOITER 5
+#define RTL 6
+#define CIRCLE 7
+#define POSITION 16
+#define LAND 9
+#define OF_LOITER 10
+#define DRIFT 11
+#define SPORT 12
+
+const int kBreathingCodeDelay = 50; // how often should the breathing code excute (ms)
+const int kStrobeDelay = 80; // Strobe blink delay (ms)
+const int kStrobeBlinkNumber = 2; // Number of strobe blinks each cycle
+const int kStrobeBlinkPause = 1500; // Time between strobe blink sets (ms)
+const int kChaseCycleDelay = 150; // chase cycle delay (ms)
+const int kCircleCycleDelay = 75; // circle cycle delay (ms)
+const int kLandingLightsOnAltitude = 300; // Altitude (cm) below which landing lights should be ON if decending
+const float kBatteryFailsafeVoltage = 14000.0; // Low battery (millivolts)
+const float kBatteryDimVoltage = 14500.0; // Voltage below which the leds shold start dimming (millivolts)
+const float kBatteryFullVoltage = 16800.0; // Full battery (millivolts)
+const int kDefaultDelay = 500;//how often should the check flight mode code excute (ms)
+
+
+CRGB leds[NUM_LEDS];
+
+
+CRGBPalette16 currentPalette;
+TBlendType    currentBlending;
+
 //#define DEBUG_VFR_HUD
-#define DEBUG_GPS_RAW
+//#define DEBUG_GPS_RAW
 //#define DEBUG_ACC
 //#define DEBUG_BAT
 //#define DEBUG_MODE
@@ -164,6 +210,37 @@ unsigned long hb_timer;
 
 int led = 13;
 
+boolean arm_flag = false;
+boolean strobe_flag = false;
+boolean breathe_flag = false;
+boolean chase_flag = false;
+boolean circle_flag = false;
+boolean circle_toggle = false;
+boolean arm_blink_array[6] =
+{
+  false, false, false, false, false, false
+};
+
+uint8_t arm_number = 0;
+uint8_t flight_mode = 0;
+uint8_t last_flight_mode = 50;
+uint8_t chase_arm = 0;
+uint8_t chase_position = 9;
+uint8_t circle_arm = 0;
+uint8_t strobe_blink_counter = 0;
+uint8_t hue;
+uint8_t brightness = MAXBRIGHTNESS;
+
+float gas_tank = 0.0;
+
+unsigned long last_chase = 0;
+unsigned long last_circle = 0;
+unsigned long last_blink = 0;
+unsigned long last_strobe = 0;
+unsigned long test_counter = 0;
+unsigned long last_breath = 0;
+unsigned long last_default = 0;
+
 mavlink_message_t msg;
 
 // ******************************************
@@ -183,6 +260,12 @@ void setup()  {
 
   pinMode(14,INPUT);
   analogReference(DEFAULT);
+
+  FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setBrightness(brightness);
+
+  currentPalette = RainbowColors_p;
+  currentBlending = NOBLEND;
 
 }
 
