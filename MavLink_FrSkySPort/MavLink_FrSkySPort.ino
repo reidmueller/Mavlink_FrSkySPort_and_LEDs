@@ -81,11 +81,14 @@ AccZ            ( Z Axis average vibration m/s?)
 #define LOITER 5
 #define RTL 6
 #define CIRCLE 7
-#define POSITION 16
 #define LAND 9
 #define OF_LOITER 10
 #define DRIFT 11
-#define SPORT 12
+#define SPORT 13
+#define FLIP 14
+#define AUTO_TUNE 15
+#define POSITION 16
+
 
 const int kBreathingCodeDelay = 50; // how often should the breathing code excute (ms)
 const int kStrobeDelay = 80; // Strobe blink delay (ms)
