@@ -98,7 +98,7 @@ const int kChaseCycleDelay = 150; // chase cycle delay (ms)
 const int kCircleCycleDelay = 75; // circle cycle delay (ms)
 const int kLandingLightsOnAltitude = 300; // Altitude (cm) below which landing lights should be ON if decending
 const float kBatteryFailsafeVoltage = 14000.0; // Low battery (millivolts)
-const float kBatteryDimVoltage = 14500.0; // Voltage below which the leds shold start dimming (millivolts)
+const float kBatteryDimVoltage = 15000.0; // Voltage below which the leds shold start dimming (millivolts)
 const float kBatteryFullVoltage = 16800.0; // Full battery (millivolts)
 const int kDefaultDelay = 500;//how often should the check flight mode code excute (ms)
 
@@ -112,7 +112,7 @@ TBlendType    currentBlending;
 //#define DEBUG_VFR_HUD
 //#define DEBUG_GPS_RAW
 //#define DEBUG_ACC
-//#define DEBUG_BAT
+#define DEBUG_BAT
 //#define DEBUG_MODE
 //#define DEBUG_STATUS
 //#define DEBUG_ATTITUDE

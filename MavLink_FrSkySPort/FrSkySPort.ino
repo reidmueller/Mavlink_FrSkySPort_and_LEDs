@@ -245,7 +245,7 @@ void FrSkySPort_ProcessSensorRequest(uint8_t sensorId)
     switch(nextDefault)
     {
     case 0:        // Note: We are using A2 - previously reported analog voltage when connected to Teensy - as Hdop
-      FrSkySPort_SendPackage(FR_ID_ADC2, ap_gps_hdop);                  
+      FrSkySPort_SendPackage(FR_ID_ADC2, ap_gps_hdop);                 
       break;       
     case 1:
       FrSkySPort_SendPackage(FR_ID_ACCX, fetchAccX());    
@@ -293,7 +293,8 @@ void FrSkySPort_ProcessSensorRequest(uint8_t sensorId)
       // Don't send until we have received a value through mavlink
       if(ap_custom_mode >= 0)
       {
-        FrSkySPort_SendPackage(FR_ID_FUEL,ap_custom_mode); 
+        //FrSkySPort_SendPackage(FR_ID_FUEL,ap_custom_mode); 
+        FrSkySPort_SendPackage(FR_ID_FUEL,my_gps_hdop);
       }
       break;      
     }
