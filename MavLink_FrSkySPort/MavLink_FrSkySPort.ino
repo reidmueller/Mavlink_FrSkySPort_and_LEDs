@@ -116,7 +116,7 @@ TBlendType    currentBlending;
 //#define DEBUG_MODE
 //#define DEBUG_STATUS
 //#define DEBUG_ATTITUDE
-#define DEBUG_STROBE
+//#define DEBUG_STROBE
 
 //#define DEBUG_FRSKY_SENSOR_REQUEST
 
@@ -216,7 +216,7 @@ unsigned long hb_timer;
 int led = 13;
 
 boolean arm_flag = false;
-boolean strobe_flag = false;
+boolean strobe_flag = true;
 boolean breathe_flag = false;
 boolean chase_flag = false;
 boolean circle_flag = false;
@@ -321,12 +321,6 @@ void loop()  {
     if (ap_voltage_battery <= kBatteryDimVoltage) brightness = map(ap_voltage_battery, kBatteryFailsafeVoltage, kBatteryDimVoltage, 20, MAXBRIGHTNESS);
     if (ap_voltage_battery > kBatteryDimVoltage) brightness = MAXBRIGHTNESS;
 
-//Basic Lights setup and display
-    SetUpNormalPalette();
-    FastLED.setBrightness(brightness);
-    RefreshArms();
-
-
     // **********STROBE code *******************
 
 #ifdef DEBUG_STROBE
@@ -359,6 +353,10 @@ void loop()  {
       last_blink = millis();
       strobe_blink_counter = 0;
     }
+//Basic Lights setup and display
+    SetUpNormalPalette();
+    FastLED.setBrightness(brightness);
+    RefreshArms();
 
     /*
 
@@ -647,14 +645,6 @@ void RefreshArms()  //Make sure arms are all the right color
     SetArmColors(i);
   }
 
-  if (arm_flag == false)  // Make sure strobes turn off
-  {
-    for (uint8_t i = 9; i <= 60; i = i + 10)
-    {
-      leds[i] = CRGB::Black;
-    }
-
-  }
   FastLED.setBrightness(brightness);
   FastLED.show();
 }
