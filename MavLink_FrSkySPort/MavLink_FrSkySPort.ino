@@ -112,10 +112,11 @@ TBlendType    currentBlending;
 //#define DEBUG_VFR_HUD
 //#define DEBUG_GPS_RAW
 //#define DEBUG_ACC
-#define DEBUG_BAT
+//#define DEBUG_BAT
 //#define DEBUG_MODE
 //#define DEBUG_STATUS
 //#define DEBUG_ATTITUDE
+#define DEBUG_STROBE
 
 //#define DEBUG_FRSKY_SENSOR_REQUEST
 
@@ -306,7 +307,10 @@ void loop()  {
 
   FrSkySPort_Process();               // Check FrSky S.Port communication
 
-  if ((millis() - last_default) > 100) {
+
+
+  if ((millis() - last_default) > 100)
+  {
     last_default = millis();
 
     // calculate porportion of voltage remaining (gas_tank)
@@ -314,387 +318,492 @@ void loop()  {
 
     // calculate how much brightness is reasonable given the ap_voltage_battery
     if (ap_voltage_battery <= kBatteryFailsafeVoltage) brightness = 0;
-    if (ap_voltage_battery <= kBatteryDimVoltage) brightness = map(ap_voltage_battery, kBatteryFailsafeVoltage, kBatteryDimVoltage, 20, 100);
+    if (ap_voltage_battery <= kBatteryDimVoltage) brightness = map(ap_voltage_battery, kBatteryFailsafeVoltage, kBatteryDimVoltage, 20, MAXBRIGHTNESS);
     if (ap_voltage_battery > kBatteryDimVoltage) brightness = MAXBRIGHTNESS;
 
 //Basic Lights setup and display
     SetUpNormalPalette();
     FastLED.setBrightness(brightness);
     RefreshArms();
-    FastLED.show();
+
+
+    // **********STROBE code *******************
+
+#ifdef DEBUG_STROBE
+    debugSerial.print(millis());
+        debugSerial.println("Im in the strobe ");
+#endif
+  strobe_blink_counter++; // if enough millis have passed since last blink then increment the number of blinks
+    if (strobe_blink_counter <= (kStrobeBlinkNumber * 2)) //if armed and in need of a blink
+    {
+      if (strobe_flag)
+      {
+        for (uint8_t i = 9; i <= 60; i += 10)
+        {
+          leds[i] = CRGB::White;
+        }
+      }
+      else
+      {
+        for (uint8_t i = 9; i <= 60; i += 10)
+        {
+          leds[i] = CRGB::Black;
+        }
+      }
+      FastLED.setBrightness(255);
+      FastLED.show();
+      strobe_flag = !strobe_flag; // toggle color from on to off
+    }
+    if ((millis() - last_blink) > kStrobeBlinkPause)  // if enought millis have passed since the blink sequence then Reset the blink counter
+    {
+      last_blink = millis();
+      strobe_blink_counter = 0;
+    }
+
+    /*
+
+              // *************** Chase Code ****************
+              if (chase_flag)
+              {
+                uint8_t led_position;
+
+                if ((millis() - last_chase) > kChaseCycleDelay)
+                {
+                  last_chase = millis();
+
+                  for (chase_arm = 0 ; chase_arm <= 5 ; chase_arm++)
+                  {
+                    SetArmColors(chase_arm);
+
+                    led_position = chase_arm * 10 + chase_position;
+
+                    leds[led_position] = CRGB::Black;
+                    if (chase_position < 8) leds[led_position - 1] = CRGB::Black;
+
+                    FastLED.show();
+                  }
+                  chase_position--;
+
+                  if (chase_position <= 0) chase_position = 9;
+
+                }
+              }
+
+              /// ********** CIRCLE Code ****************
+
+              if (circle_flag)
+              {
+                if ((millis() - last_circle) > kCircleCycleDelay)
+                {
+                  last_circle = millis();
+                  if (circle_toggle)
+                  {
+                    SetArmColorsBlack(circle_arm);
+                  }
+                  else
+                  {
+                    SetArmColors(circle_arm);
+                  }
+                  circle_arm++;
+                  if (circle_arm >= 6)
+                  {
+                    circle_toggle = !circle_toggle;
+                    circle_arm = 0;
+                  }
+                }
+              }
+
+              // ************** Breathing Code **************
+              if (breathe_flag)
+              {
+                if ((millis() - last_breath) > kBreathingCodeDelay)
+                {
+                  last_breath = millis();
+                  uint8_t breathing = (millis() / 15) % 255;
+                  //FastLED.setBrightness(map(quadwave8(breathing), 0, 255, DIMNESS, MAXBRIGHTNESS));
+                  brightness = (map(quadwave8(breathing), 0, 255, DIMNESS, MAXBRIGHTNESS));
+                  SetGasTankLeds();
+                  FastLED.show();
+                }
+              }
+              else
+              {
+                brightness = MAXBRIGHTNESS;
+              }
+              */
   }
 }
 
 
-  void _MavLink_receive() {
-    mavlink_message_t msg;
-    mavlink_status_t status;
+void _MavLink_receive() {
+  mavlink_message_t msg;
+  mavlink_status_t status;
 
-    while (_MavLinkSerial.available())
+  while (_MavLinkSerial.available())
+  {
+    uint8_t c = _MavLinkSerial.read();
+    if (mavlink_parse_char(MAVLINK_COMM_0, c, &msg, &status))
     {
-      uint8_t c = _MavLinkSerial.read();
-      if (mavlink_parse_char(MAVLINK_COMM_0, c, &msg, &status))
+      switch (msg.msgid)
       {
-        switch (msg.msgid)
-        {
-        case MAVLINK_MSG_ID_HEARTBEAT:  // 0
-          ap_base_mode = (mavlink_msg_heartbeat_get_base_mode(&msg) & 0x80) > 7;
-          ap_custom_mode = mavlink_msg_heartbeat_get_custom_mode(&msg);
+      case MAVLINK_MSG_ID_HEARTBEAT:  // 0
+        ap_base_mode = (mavlink_msg_heartbeat_get_base_mode(&msg) & 0x80) > 7;
+        ap_custom_mode = mavlink_msg_heartbeat_get_custom_mode(&msg);
 #ifdef DEBUG_MODE
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_SYS_STATUS: base_mode: ");
-          debugSerial.print((mavlink_msg_heartbeat_get_base_mode(&msg) & 0x80) > 7);
-          debugSerial.print(", custom_mode: ");
-          debugSerial.print(mavlink_msg_heartbeat_get_custom_mode(&msg));
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_SYS_STATUS: base_mode: ");
+        debugSerial.print((mavlink_msg_heartbeat_get_base_mode(&msg) & 0x80) > 7);
+        debugSerial.print(", custom_mode: ");
+        debugSerial.print(mavlink_msg_heartbeat_get_custom_mode(&msg));
+        debugSerial.println();
 #endif
-          MavLink_Connected_timer = millis();
-          if (!MavLink_Connected);
-          {
-            hb_count++;
-            if ((hb_count++) > 10) {       // If  received > 10 heartbeats from MavLink then we are connected
-              MavLink_Connected = 1;
-              hb_count = 0;
-              digitalWrite(led, HIGH);     // LED will be ON when connected to MavLink, else it will slowly blink
-            }
+        MavLink_Connected_timer = millis();
+        if (!MavLink_Connected);
+        {
+          hb_count++;
+          if ((hb_count++) > 10) {       // If  received > 10 heartbeats from MavLink then we are connected
+            MavLink_Connected = 1;
+            hb_count = 0;
+            digitalWrite(led, HIGH);     // LED will be ON when connected to MavLink, else it will slowly blink
           }
-          break;
-        case MAVLINK_MSG_ID_STATUSTEXT:     //253
-          mavlink_msg_statustext_decode(&msg, &statustext);
-          ap_status_severity = statustext.severity;
-          ap_status_send_count = 5;
-          parseStatusText(statustext.severity, statustext.text);
+        }
+        break;
+      case MAVLINK_MSG_ID_STATUSTEXT:     //253
+        mavlink_msg_statustext_decode(&msg, &statustext);
+        ap_status_severity = statustext.severity;
+        ap_status_send_count = 5;
+        parseStatusText(statustext.severity, statustext.text);
 
 #ifdef DEBUG_STATUS
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_STATUSTEXT: severity ");
-          debugSerial.print(statustext.severity);
-          debugSerial.print(", text");
-          debugSerial.print(statustext.text);
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_STATUSTEXT: severity ");
+        debugSerial.print(statustext.severity);
+        debugSerial.print(", text");
+        debugSerial.print(statustext.text);
+        debugSerial.println();
 #endif
-          break;
-          break;
-        case MAVLINK_MSG_ID_SYS_STATUS :   // 1
-          ap_voltage_battery = mavlink_msg_sys_status_get_voltage_battery(&msg);  // 1 = 1mV
-          ap_current_battery = mavlink_msg_sys_status_get_current_battery(&msg);     // 1=10mA
-          ap_battery_remaining = mavlink_msg_sys_status_get_battery_remaining(&msg); //battery capacity reported in %
-          storeVoltageReading(ap_voltage_battery);
-          storeCurrentReading(ap_current_battery);
+        break;
+        break;
+      case MAVLINK_MSG_ID_SYS_STATUS :   // 1
+        ap_voltage_battery = mavlink_msg_sys_status_get_voltage_battery(&msg);  // 1 = 1mV
+        ap_current_battery = mavlink_msg_sys_status_get_current_battery(&msg);     // 1=10mA
+        ap_battery_remaining = mavlink_msg_sys_status_get_battery_remaining(&msg); //battery capacity reported in %
+        storeVoltageReading(ap_voltage_battery);
+        storeCurrentReading(ap_current_battery);
 
 #ifdef DEBUG_BAT
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_SYS_STATUS: voltage_battery: ");
-          debugSerial.print(mavlink_msg_sys_status_get_voltage_battery(&msg));
-          debugSerial.print(", current_battery: ");
-          debugSerial.print(mavlink_msg_sys_status_get_current_battery(&msg));
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_SYS_STATUS: voltage_battery: ");
+        debugSerial.print(mavlink_msg_sys_status_get_voltage_battery(&msg));
+        debugSerial.print(", current_battery: ");
+        debugSerial.print(mavlink_msg_sys_status_get_current_battery(&msg));
+        debugSerial.println();
 #endif
-          uint8_t temp_cell_count;
-          if (ap_voltage_battery > 21000) temp_cell_count = 6;
-          else if (ap_voltage_battery > 17500) temp_cell_count = 5;
-          else if (ap_voltage_battery > 12750) temp_cell_count = 4;
-          else if (ap_voltage_battery > 8500) temp_cell_count = 3;
-          else if (ap_voltage_battery > 4250) temp_cell_count = 2;
-          else temp_cell_count = 0;
-          if (temp_cell_count > ap_cell_count)
-            ap_cell_count = temp_cell_count;
-          break;
+        uint8_t temp_cell_count;
+        if (ap_voltage_battery > 21000) temp_cell_count = 6;
+        else if (ap_voltage_battery > 17500) temp_cell_count = 5;
+        else if (ap_voltage_battery > 12750) temp_cell_count = 4;
+        else if (ap_voltage_battery > 8500) temp_cell_count = 3;
+        else if (ap_voltage_battery > 4250) temp_cell_count = 2;
+        else temp_cell_count = 0;
+        if (temp_cell_count > ap_cell_count)
+          ap_cell_count = temp_cell_count;
+        break;
 
-        case MAVLINK_MSG_ID_GPS_RAW_INT:   // 24
-          ap_fixtype = mavlink_msg_gps_raw_int_get_fix_type(&msg);                               // 0 = No GPS, 1 =No Fix, 2 = 2D Fix, 3 = 3D Fix
-          ap_sat_visible =  mavlink_msg_gps_raw_int_get_satellites_visible(&msg);          // numbers of visible satelites
-          gps_status = (ap_sat_visible * 10) + ap_fixtype;
-          ap_gps_hdop = mavlink_msg_gps_raw_int_get_eph(&msg) / 4;
-          my_gps_hdop = mavlink_msg_gps_raw_int_get_eph(&msg);
-          // Max 8 bit
-          if (ap_gps_hdop == 0 || ap_gps_hdop > 255)
-            ap_gps_hdop = 255;
-          if (ap_fixtype == 3)  {
-            ap_latitude = mavlink_msg_gps_raw_int_get_lat(&msg);
-            ap_longitude = mavlink_msg_gps_raw_int_get_lon(&msg);
-            ap_gps_altitude = mavlink_msg_gps_raw_int_get_alt(&msg);      // 1m =1000
-            ap_gps_speed = mavlink_msg_gps_raw_int_get_vel(&msg);         // 100 = 1m/s
-            ap_cog = mavlink_msg_gps_raw_int_get_cog(&msg) / 100;
-          }
-          else
-          {
-            ap_gps_speed = 0;
-          }
+      case MAVLINK_MSG_ID_GPS_RAW_INT:   // 24
+        ap_fixtype = mavlink_msg_gps_raw_int_get_fix_type(&msg);                               // 0 = No GPS, 1 =No Fix, 2 = 2D Fix, 3 = 3D Fix
+        ap_sat_visible =  mavlink_msg_gps_raw_int_get_satellites_visible(&msg);          // numbers of visible satelites
+        gps_status = (ap_sat_visible * 10) + ap_fixtype;
+        ap_gps_hdop = mavlink_msg_gps_raw_int_get_eph(&msg) / 4;
+        my_gps_hdop = mavlink_msg_gps_raw_int_get_eph(&msg);
+        // Max 8 bit
+        if (ap_gps_hdop == 0 || ap_gps_hdop > 255)
+          ap_gps_hdop = 255;
+        if (ap_fixtype == 3)  {
+          ap_latitude = mavlink_msg_gps_raw_int_get_lat(&msg);
+          ap_longitude = mavlink_msg_gps_raw_int_get_lon(&msg);
+          ap_gps_altitude = mavlink_msg_gps_raw_int_get_alt(&msg);      // 1m =1000
+          ap_gps_speed = mavlink_msg_gps_raw_int_get_vel(&msg);         // 100 = 1m/s
+          ap_cog = mavlink_msg_gps_raw_int_get_cog(&msg) / 100;
+        }
+        else
+        {
+          ap_gps_speed = 0;
+        }
 #ifdef DEBUG_GPS_RAW
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_GPS_RAW_INT: fixtype: ");
-          debugSerial.print(ap_fixtype);
-          debugSerial.print(", visiblesats: ");
-          debugSerial.print(ap_sat_visible);
-          debugSerial.print(", status: ");
-          debugSerial.print(gps_status);
-          debugSerial.print(", gpsspeed: ");
-          debugSerial.print(mavlink_msg_gps_raw_int_get_vel(&msg) / 100.0);
-          debugSerial.print(", hdop: ");
-          debugSerial.print(mavlink_msg_gps_raw_int_get_eph(&msg) / 100.0);
-          debugSerial.print(", alt: ");
-          debugSerial.print(mavlink_msg_gps_raw_int_get_alt(&msg));
-          debugSerial.print(", cog: ");
-          debugSerial.print(mavlink_msg_gps_raw_int_get_cog(&msg));
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_GPS_RAW_INT: fixtype: ");
+        debugSerial.print(ap_fixtype);
+        debugSerial.print(", visiblesats: ");
+        debugSerial.print(ap_sat_visible);
+        debugSerial.print(", status: ");
+        debugSerial.print(gps_status);
+        debugSerial.print(", gpsspeed: ");
+        debugSerial.print(mavlink_msg_gps_raw_int_get_vel(&msg) / 100.0);
+        debugSerial.print(", hdop: ");
+        debugSerial.print(mavlink_msg_gps_raw_int_get_eph(&msg) / 100.0);
+        debugSerial.print(", alt: ");
+        debugSerial.print(mavlink_msg_gps_raw_int_get_alt(&msg));
+        debugSerial.print(", cog: ");
+        debugSerial.print(mavlink_msg_gps_raw_int_get_cog(&msg));
+        debugSerial.println();
 #endif
-          break;
+        break;
 
-        case MAVLINK_MSG_ID_RAW_IMU:   // 27
-          storeAccX(mavlink_msg_raw_imu_get_xacc(&msg) / 10);
-          storeAccY(mavlink_msg_raw_imu_get_yacc(&msg) / 10);
-          storeAccZ(mavlink_msg_raw_imu_get_zacc(&msg) / 10);
+      case MAVLINK_MSG_ID_RAW_IMU:   // 27
+        storeAccX(mavlink_msg_raw_imu_get_xacc(&msg) / 10);
+        storeAccY(mavlink_msg_raw_imu_get_yacc(&msg) / 10);
+        storeAccZ(mavlink_msg_raw_imu_get_zacc(&msg) / 10);
 
 #ifdef DEBUG_ACC
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_RAW_IMU: xacc: ");
-          debugSerial.print(mavlink_msg_raw_imu_get_xacc(&msg));
-          debugSerial.print(", yacc: ");
-          debugSerial.print(mavlink_msg_raw_imu_get_yacc(&msg));
-          debugSerial.print(", zacc: ");
-          debugSerial.print(mavlink_msg_raw_imu_get_zacc(&msg));
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_RAW_IMU: xacc: ");
+        debugSerial.print(mavlink_msg_raw_imu_get_xacc(&msg));
+        debugSerial.print(", yacc: ");
+        debugSerial.print(mavlink_msg_raw_imu_get_yacc(&msg));
+        debugSerial.print(", zacc: ");
+        debugSerial.print(mavlink_msg_raw_imu_get_zacc(&msg));
+        debugSerial.println();
 #endif
-          break;
+        break;
 
-        case MAVLINK_MSG_ID_ATTITUDE:     //30
-          ap_roll_angle = mavlink_msg_attitude_get_roll(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
-          // Not upside down
-          if (abs(ap_roll_angle) <= 90)
-          {
-            ap_pitch_angle = mavlink_msg_attitude_get_pitch(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
-          }
-          // Upside down
-          else
-          {
-            ap_pitch_angle = 180 - mavlink_msg_attitude_get_pitch(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
-          }
-          ap_yaw_angle = (mavlink_msg_attitude_get_yaw(&msg) + 3.1416) * 162.9747; //value comes in rads, add pi and scale to 0 to 1024
+      case MAVLINK_MSG_ID_ATTITUDE:     //30
+        ap_roll_angle = mavlink_msg_attitude_get_roll(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
+        // Not upside down
+        if (abs(ap_roll_angle) <= 90)
+        {
+          ap_pitch_angle = mavlink_msg_attitude_get_pitch(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
+        }
+        // Upside down
+        else
+        {
+          ap_pitch_angle = 180 - mavlink_msg_attitude_get_pitch(&msg) * 180 / 3.1416; //value comes in rads, convert to deg
+        }
+        ap_yaw_angle = (mavlink_msg_attitude_get_yaw(&msg) + 3.1416) * 162.9747; //value comes in rads, add pi and scale to 0 to 1024
 
 #ifdef DEBUG_ATTITUDE
-          debugSerial.print("MAVLINK Roll Angle: ");
-          debugSerial.print(mavlink_msg_attitude_get_roll(&msg));
-          debugSerial.print(" (");
-          debugSerial.print(ap_roll_angle);
-          debugSerial.print("deg)");
-          debugSerial.print("\tMAVLINK Pitch Angle: ");
-          debugSerial.print(mavlink_msg_attitude_get_pitch(&msg));
-          debugSerial.print(" (");
-          debugSerial.print(ap_pitch_angle);
-          debugSerial.print("deg)");
-          debugSerial.print("\tMAVLINK Yaw Angle: ");
-          debugSerial.print(mavlink_msg_attitude_get_yaw(&msg));
-          debugSerial.println();
+        debugSerial.print("MAVLINK Roll Angle: ");
+        debugSerial.print(mavlink_msg_attitude_get_roll(&msg));
+        debugSerial.print(" (");
+        debugSerial.print(ap_roll_angle);
+        debugSerial.print("deg)");
+        debugSerial.print("\tMAVLINK Pitch Angle: ");
+        debugSerial.print(mavlink_msg_attitude_get_pitch(&msg));
+        debugSerial.print(" (");
+        debugSerial.print(ap_pitch_angle);
+        debugSerial.print("deg)");
+        debugSerial.print("\tMAVLINK Yaw Angle: ");
+        debugSerial.print(mavlink_msg_attitude_get_yaw(&msg));
+        debugSerial.println();
 #endif
-          break;
-        case MAVLINK_MSG_ID_VFR_HUD:   //  74
-          ap_groundspeed = mavlink_msg_vfr_hud_get_groundspeed(&msg);      // 100 = 1m/s
-          ap_heading = mavlink_msg_vfr_hud_get_heading(&msg);              // 100 = 100 deg
-          ap_throttle = mavlink_msg_vfr_hud_get_throttle(&msg);            //  100 = 100%
-          ap_bar_altitude = mavlink_msg_vfr_hud_get_alt(&msg) * 100;       //  m
-          ap_climb_rate = mavlink_msg_vfr_hud_get_climb(&msg) * 100;       //  m/s
+        break;
+      case MAVLINK_MSG_ID_VFR_HUD:   //  74
+        ap_groundspeed = mavlink_msg_vfr_hud_get_groundspeed(&msg);      // 100 = 1m/s
+        ap_heading = mavlink_msg_vfr_hud_get_heading(&msg);              // 100 = 100 deg
+        ap_throttle = mavlink_msg_vfr_hud_get_throttle(&msg);            //  100 = 100%
+        ap_bar_altitude = mavlink_msg_vfr_hud_get_alt(&msg) * 100;       //  m
+        ap_climb_rate = mavlink_msg_vfr_hud_get_climb(&msg) * 100;       //  m/s
 #ifdef DEBUG_VFR_HUD
-          debugSerial.print(millis());
-          debugSerial.print("\tMAVLINK_MSG_ID_VFR_HUD: groundspeed: ");
-          debugSerial.print(ap_groundspeed);
-          debugSerial.print(", heading: ");
-          debugSerial.print(ap_heading);
-          debugSerial.print(", throttle: ");
-          debugSerial.print(ap_throttle);
-          debugSerial.print(", alt: ");
-          debugSerial.print(ap_bar_altitude);
-          debugSerial.print(", climbrate: ");
-          debugSerial.print(ap_climb_rate);
-          debugSerial.println();
+        debugSerial.print(millis());
+        debugSerial.print("\tMAVLINK_MSG_ID_VFR_HUD: groundspeed: ");
+        debugSerial.print(ap_groundspeed);
+        debugSerial.print(", heading: ");
+        debugSerial.print(ap_heading);
+        debugSerial.print(", throttle: ");
+        debugSerial.print(ap_throttle);
+        debugSerial.print(", alt: ");
+        debugSerial.print(ap_bar_altitude);
+        debugSerial.print(", climbrate: ");
+        debugSerial.print(ap_climb_rate);
+        debugSerial.println();
 #endif
-          break;
-        default:
-          break;
-        }
-
+        break;
+      default:
+        break;
       }
+
     }
   }
+}
 
 //*****************ADDITIONAL FUNCTIONS FOR LEDS *********************
 
 
-  void Reset()  // Used to turn off arm array flags after change of flight mode
+void Reset()  // Used to turn off arm array flags after change of flight mode
+{
+  for (uint8_t i = 0; i <= 5; i++)
   {
-    for (uint8_t i = 0; i <= 5; i++)
-    {
-      arm_blink_array[i] = false;
-    }
-    breathe_flag = false;
-    chase_flag = false;
-    circle_flag = false;
+    arm_blink_array[i] = false;
+  }
+  breathe_flag = false;
+  chase_flag = false;
+  circle_flag = false;
+}
+
+void RefreshArms()  //Make sure arms are all the right color
+{
+  for (uint8_t i = 0; i <= 5; i++)
+  {
+    SetArmColors(i);
   }
 
-  void RefreshArms()  //Make sure arms are all the right color
+  if (arm_flag == false)  // Make sure strobes turn off
   {
-    for (uint8_t i = 0; i <= 5; i++)
+    for (uint8_t i = 9; i <= 60; i = i + 10)
     {
-      SetArmColors(i);
+      leds[i] = CRGB::Black;
     }
-
-    if (arm_flag == false)  // Make sure strobes turn off
-    {
-      for (uint8_t i = 9; i <= 60; i = i + 10)
-      {
-        leds[i] = CRGB::Black;
-      }
-
-    }
-    FastLED.setBrightness(brightness);
-    FastLED.show();
-  }
-
-  void SetArmColors(uint8_t arm_number) // calculate gas gage and set arm colors
-  {
-
-    for (int j = (arm_number * 10); (j <= (arm_number * 10 + 8)); j++)
-    {
-      leds[j] = ColorFromPalette(currentPalette, arm_number * 16, 255, currentBlending);
-    }
-
-    if (arm_number == 3)
-    {
-      SetGasTankLeds();
-    }
-    FastLED.setBrightness(brightness);
-    FastLED.show();
 
   }
+  FastLED.setBrightness(brightness);
+  FastLED.show();
+}
 
-  void SetGasTankLeds()
+void SetArmColors(uint8_t arm_number) // calculate gas gage and set arm colors
+{
+
+  for (int j = (arm_number * 10); (j <= (arm_number * 10 + 8)); j++)
+  {
+    leds[j] = ColorFromPalette(currentPalette, arm_number * 16, 255, currentBlending);
+  }
+
+  if (arm_number == 3)
+  {
+    SetGasTankLeds();
+  }
+  FastLED.setBrightness(brightness);
+  FastLED.show();
+
+}
+
+void SetGasTankLeds()
+{
+  //set arm 3 leds orange to reflect voltage (FULL)
+  for (uint8_t i = 30; i <= 30 + round(gas_tank * 9); i++)
+  {
+    leds[i] = CHSV(32, 255, 160);
+
+  }
+  FastLED.setBrightness(brightness);
+  FastLED.show();
+}
+
+void SetArmColorsBlack(uint8_t arm_number) // calculate gas gage and set arm colors
+{
+  if (arm_number == 3)
   {
     //set arm 3 leds orange to reflect voltage (FULL)
     for (uint8_t i = 30; i <= 30 + round(gas_tank * 9); i++)
     {
-      leds[i] = CHSV(32, 255, 160);
-
+      leds[i] = CHSV(32, 255, 50);
     }
-    FastLED.setBrightness(brightness);
-    FastLED.show();
-  }
-
-  void SetArmColorsBlack(uint8_t arm_number) // calculate gas gage and set arm colors
-  {
-    if (arm_number == 3)
+    //set other arm 3 leds to black (EMPTY)
+    for (uint8_t i = 30 + round(gas_tank * 9 + 1); i <= 38; i++)
     {
-      //set arm 3 leds orange to reflect voltage (FULL)
-      for (uint8_t i = 30; i <= 30 + round(gas_tank * 9); i++)
-      {
-        leds[i] = CHSV(32, 255, 50);
-      }
-      //set other arm 3 leds to black (EMPTY)
-      for (uint8_t i = 30 + round(gas_tank * 9 + 1); i <= 38; i++)
-      {
-        leds[i] = CRGB::Black;
+      leds[i] = CRGB::Black;
 
-      }
     }
-    else
+  }
+  else
+  {
+    // if not arm 3 then set all the pixels to black
+    for (uint8_t i = arm_number * 10; i <= ((arm_number * 10) + 8); i++)
     {
-      // if not arm 3 then set all the pixels to black
-      for (uint8_t i = arm_number * 10; i <= ((arm_number * 10) + 8); i++)
-      {
-        leds[i] = CRGB::Black;
+      leds[i] = CRGB::Black;
 
-      }
     }
-    FastLED.setBrightness(brightness);
-    FastLED.show();
   }
+  FastLED.setBrightness(brightness);
+  FastLED.show();
+}
 
-  void SetUpDisarmedPalette()
+void SetUpDisarmedPalette()
+{
+  fill_solid( currentPalette, 16, CRGB::Black);
+}
+
+void SetUpLandingPalette()
+{
+  fill_solid( currentPalette, 16, CRGB::White);
+}
+
+void SetupReturnToLaunchPalette()
+{
+  // 'black out' all 16 palette entries...
+  fill_solid( currentPalette, 16, CRGB::Black);
+  // and set every fourth one to white.
+  currentPalette[0] = CRGB::White;
+  currentPalette[4] = CRGB::White;
+  currentPalette[8] = CRGB::White;
+  currentPalette[12] = CRGB::White;
+
+}
+
+void SetUpStabilizePalette()
+{
+  CRGB white = CRGB::White;
+  CRGB black  = CRGB::Black;
+  CRGB red = CHSV(HUE_RED, 255, 255);
+  CRGB green  = CHSV( HUE_GREEN, 255, 255);
+  CRGB blue = CHSV(HUE_BLUE, 255, 255);
+
+
+  fill_solid( currentPalette, 16, CRGB::Black);
+  currentPalette = CRGBPalette16(
+                     white, green, black, blue,
+                     black, red, black, black,
+                     black, black, black, black,
+                     black, black, black, black );
+
+}
+
+void SetUpNormalPalette()
+{
+  CRGB white = CRGB::White;
+  CRGB black  = CRGB::Black;
+  CRGB red = CHSV(HUE_RED, 255, 255);
+  CRGB green  = CHSV( HUE_GREEN, 255, 255);
+  CRGB blue = CHSV(HUE_BLUE, 255, 255);
+
+
+  fill_solid( currentPalette, 16, CRGB::Black);
+  currentPalette = CRGBPalette16(
+                     white, green, green, blue,
+                     red, red, black, black,
+                     black, black, black, black,
+                     black, black, black, black );
+
+}
+
+void SetUpAutoPalette()
+{
+  CRGB white = CRGB::White;
+  CRGB black  = CRGB::Black;
+  CRGB red = CHSV(HUE_RED, 255, 255);
+  CRGB green  = CHSV( HUE_GREEN, 255, 255);
+  CRGB blue = CHSV(HUE_BLUE, 255, 255);
+
+
+  fill_solid( currentPalette, 16, CRGB::Black);
+  currentPalette = CRGBPalette16(
+                     white, green, white, blue,
+                     white, red, black, black,
+                     black, black, black, black,
+                     black, black, black, black );
+}
+
+
+void ChangeFlightMode() // used for testing purposes...
+{
+  if ((millis() - test_counter) > 4000)
   {
-    fill_solid( currentPalette, 16, CRGB::Black);
+    flight_mode++;
+    test_counter = millis();
   }
-
-  void SetUpLandingPalette()
-  {
-    fill_solid( currentPalette, 16, CRGB::White);
-  }
-
-  void SetupReturnToLaunchPalette()
-  {
-    // 'black out' all 16 palette entries...
-    fill_solid( currentPalette, 16, CRGB::Black);
-    // and set every fourth one to white.
-    currentPalette[0] = CRGB::White;
-    currentPalette[4] = CRGB::White;
-    currentPalette[8] = CRGB::White;
-    currentPalette[12] = CRGB::White;
-
-  }
-
-  void SetUpStabilizePalette()
-  {
-    CRGB white = CRGB::White;
-    CRGB black  = CRGB::Black;
-    CRGB red = CHSV(HUE_RED, 255, 255);
-    CRGB green  = CHSV( HUE_GREEN, 255, 255);
-    CRGB blue = CHSV(HUE_BLUE, 255, 255);
+  if (flight_mode > 15) flight_mode = 0;
 
 
-    fill_solid( currentPalette, 16, CRGB::Black);
-    currentPalette = CRGBPalette16(
-                       white, green, black, blue,
-                       black, red, black, black,
-                       black, black, black, black,
-                       black, black, black, black );
-
-  }
-
-  void SetUpNormalPalette()
-  {
-    CRGB white = CRGB::White;
-    CRGB black  = CRGB::Black;
-    CRGB red = CHSV(HUE_RED, 255, 255);
-    CRGB green  = CHSV( HUE_GREEN, 255, 255);
-    CRGB blue = CHSV(HUE_BLUE, 255, 255);
-
-
-    fill_solid( currentPalette, 16, CRGB::Black);
-    currentPalette = CRGBPalette16(
-                       white, green, green, blue,
-                       red, red, black, black,
-                       black, black, black, black,
-                       black, black, black, black );
-
-  }
-
-  void SetUpAutoPalette()
-  {
-    CRGB white = CRGB::White;
-    CRGB black  = CRGB::Black;
-    CRGB red = CHSV(HUE_RED, 255, 255);
-    CRGB green  = CHSV( HUE_GREEN, 255, 255);
-    CRGB blue = CHSV(HUE_BLUE, 255, 255);
-
-
-    fill_solid( currentPalette, 16, CRGB::Black);
-    currentPalette = CRGBPalette16(
-                       white, green, white, blue,
-                       white, red, black, black,
-                       black, black, black, black,
-                       black, black, black, black );
-  }
-
-
-  void ChangeFlightMode() // used for testing purposes...
-  {
-    if ((millis() - test_counter) > 4000)
-    {
-      flight_mode++;
-      test_counter = millis();
-    }
-    if (flight_mode > 15) flight_mode = 0;
-
-
-  }
+}
 
 
 
